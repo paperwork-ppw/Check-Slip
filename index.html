@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slip Uploader</title>
+    <style>
+        /* CSS ทั้งหมดเหมือนเดิม */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; color: #333;
+        }
+        .container {
+            max-width: 480px; margin: 0 auto; background-color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .title {
+            color: #FF4500; text-align: center; margin-bottom: 20px; font-weight: bold;
+        }
+        .upload-area {
+            text-align: center;
+        }
+        #preview-image {
+            max-width: 100%; max-height: 300px; border-radius: 8px; margin-top: 20px; display: none; border: 2px dashed #ddd;
+        }
+        #file-input {
+            display: none;
+        }
+        .action-button {
+            display: block; width: 100%; padding: 15px; font-size: 18px; font-weight: bold; color: white; background-color: #FF5733; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; transition: background-color 0.3s;
+        }
+        .action-button:hover {
+            background-color: #FF4500;
+        }
+        .action-button:disabled {
+            background-color: #cccccc; cursor: not-allowed;
+        }
+        .loader {
+            text-align: center; padding: 10px; display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="main-title" class="title">Slip Uploader</h1>
+        <div class="upload-area">
+            <img id="preview-image" src="" alt="Image Preview"/>
+            <div id="loader" class="loader">กำลังประมวลผล...</div>
+            <input type="file" id="file-input" accept="image/*">
+            <button id="action-button" class="action-button">อัปโหลดสลิป</button>
+        </div>
+    </div>
+
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <script>
+        const LIFF_ID = "2007657706-pRD69QDg"; // ใช้ LIFF ID เดิม
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlX38EgXiEO-KuUaRd805ZSucA8CKuBPyirK5JEjwU9bnAxylmrWrQN-hNEKKK5n32/exec"; 
+
+        let selectedFile = null;
+        let userProfile = null;
+
+        async function main() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+                userProfile = await liff.getProfile();
+                document.getElementById('main-title').innerText = `ส่งสลิปถึงบอท`;
+            } catch(err) {
+                console.error(err);
+                alert("เกิดข้อผิดพลาดในการเริ่มต้น LIFF");
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            main();
+            const actionButton = document.getElementById('action-button');
+            const fileInput = document.getElementById('file-input');
+            const previewImage = document.getElementById('preview-image');
+
+            actionButton.onclick = () => {
+                if (selectedFile) {
+                    sendImage();
+                } else {
+                    fileInput.click();
+                }
+            };
+            
+            fileInput.onchange = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    selectedFile = file;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        previewImage.src = e.target.result;
+                        previewImage.style.display = 'block';
+                        actionButton.innerText = 'ยืนยันและส่งสลิป';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+        });
+
+        //  <<<<<<<<<<<<<< แก้ไขฟังก์ชัน sendImage ทั้งหมด >>>>>>>>>>>>>>>
+        async function sendImage() {
+            if (!selectedFile) {
+                alert("กรุณาเลือกรูปภาพก่อนครับ");
+                return;
+            }
+
+            const actionButton = document.getElementById('action-button');
+            const loader = document.getElementById('loader');
+
+            actionButton.disabled = true;
+            actionButton.innerText = 'กำลังอัปโหลด...';
+            loader.style.display = 'block';
+
+            const reader = new FileReader();
+            reader.readAsDataURL(selectedFile);
+            reader.onload = async () => {
+                const base64Data = reader.result.split(',')[1];
+                
+                try {
+                    // 1. ส่งไฟล์ไปที่ Google Script เพื่ออัปโหลดลง Drive
+                    const response = await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            fileName: selectedFile.name,
+                            mimeType: selectedFile.type,
+                            base64Data: base64Data
+                        }),
+                        headers: {
+                            'Content-Type': 'text/plain;charset=utf-8',
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.status === 'success' && result.imageUrl) {
+                        // 2. ถ้าอัปโหลดสำเร็จ ให้ใช้ liff.sendMessages() เพื่อส่งรูปภาพ
+                        actionButton.innerText = 'กำลังส่งในแชท...';
+                        await liff.sendMessages([
+                            {
+                                type: 'image',
+                                originalContentUrl: result.imageUrl,
+                                previewImageUrl: result.imageUrl
+                            }
+                        ]);
+                        // 3. เมื่อส่งสำเร็จ ให้ปิดหน้าต่าง LIFF
+                        liff.closeWindow();
+                    } else {
+                        // ถ้า Google Script ส่ง error กลับมา
+                        throw new Error(result.message || "การอัปโหลดไฟล์ล้มเหลว");
+                    }
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('เกิดข้อผิดพลาด: ' + error.message);
+                    // คืนค่าปุ่มให้กดใหม่ได้
+                    actionButton.disabled = false;
+                    actionButton.innerText = 'ยืนยันและส่งสลิป';
+                    loader.style.display = 'none';
+                }
+            };
+            reader.onerror = error => {
+                console.error('FileReader error: ', error);
+                alert('ไม่สามารถอ่านไฟล์ได้');
+                 actionButton.disabled = false;
+                 actionButton.innerText = 'ยืนยันและส่งสลิป';
+                 loader.style.display = 'none';
+            };
+        }
+    </script>
+</body>
+</html>
