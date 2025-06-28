@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slip Uploader</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .title {
+            color: #FF4500; /* สีส้มแดง */
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .upload-area {
+            text-align: center;
+        }
+        #preview-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none; /* ซ่อนไว้ตอนแรก */
+            border: 2px dashed #ddd;
+        }
+        #file-input {
+            display: none;
+        }
+        .action-button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            background-color: #FF5733; /* สีส้มแดง */
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        .action-button:hover {
+            background-color: #FF4500;
+        }
+        .action-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .loader {
+            text-align: center;
+            padding: 10px;
+            display: none; /* ซ่อนไว้ตอนแรก */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1 id="main-title" class="title">Slip To ...</h1>
+        
+        <div class="upload-area">
+            <img id="preview-image" src="" alt="Image Preview"/>
+            <div id="loader" class="loader">กำลังประมวลผล...</div>
+            
+            <input type="file" id="file-input" accept="image/*">
+            
+            <button id="action-button" class="action-button">อัปโหลดสลิป</button>
+        </div>
+    </div>
+
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <script>
+        // ============== ค่าที่ต้องแก้ไข ==============
+        const LIFF_ID = "2007657706-pRD69QDg";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwlX38EgXiEO-KuUaRd805ZSucA8CKuBPyirK5JEjwU9bnAxylmrWrQN-hNEKKK5n32/exec"; 
+        // ===========================================
+
+        let selectedFile = null;
+
+        async function main() {
+            try {
+                // เริ่มต้น LIFF
+                await liff.init({ liffId: LIFF_ID });
+                
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+
+                // ดึงข้อมูลโปรไฟล์ผู้ใช้
+                const profile = await liff.getProfile();
+                document.getElementById('main-title').innerText = `Slip To ${profile.displayName}`;
+
+            } catch (error) {
+                console.error("LIFF Initialization failed", error);
+                alert("เกิดข้อผิดพลาดในการเริ่มต้น LIFF");
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            main();
+
+            const actionButton = document.getElementById('action-button');
+            const fileInput = document.getElementById('file-input');
+            const previewImage = document.getElementById('preview-image');
+            const loader = document.getElementById('loader');
+
+            // เมื่อกดปุ่ม "อัปโหลด"
+            actionButton.onclick = () => {
+                if (selectedFile) {
+                    // ถ้ามีไฟล์ที่เลือกแล้ว (สถานะเป็นปุ่ม "ส่ง")
+                    sendImage();
+                } else {
+                    // ถ้ายังไม่มีไฟล์ (สถานะเป็นปุ่ม "อัปโหลด")
+                    fileInput.click();
+                }
+            };
+            
+            // เมื่อผู้ใช้เลือกไฟล์
+            fileInput.onchange = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    selectedFile = file;
+                    const reader = new FileReader();
+                    
+                    reader.onload = (e) => {
+                        // แสดงรูปตัวอย่าง
+                        previewImage.src = e.target.result;
+                        previewImage.style.display = 'block';
+
+                        // เปลี่ยนปุ่มเป็น "ส่ง"
+                        actionButton.innerText = 'ส่งรูปภาพ';
+                    };
+                    
+                    reader.readAsDataURL(file);
+                }
+            };
+        });
+
+        async function sendImage() {
+            if (!selectedFile) {
+                alert("กรุณาเลือกรูปภาพก่อนครับ");
+                return;
+            }
+
+            if (!liff.isInClient()) {
+                alert("ฟังก์ชันนี้สามารถใช้งานได้ในแอปพลิเคชัน LINE เท่านั้น");
+                return;
+            }
+
+            const actionButton = document.getElementById('action-button');
+            const loader = document.getElementById('loader');
+
+            // แสดงสถานะกำลังส่ง
+            actionButton.disabled = true;
+            actionButton.innerText = 'กำลังส่ง...';
+            loader.style.display = 'block';
+
+            // 1. อ่านไฟล์เป็น Base64
+            const reader = new FileReader();
+            reader.readAsDataURL(selectedFile);
+            reader.onload = async () => {
+                // เอาเฉพาะส่วนข้อมูล Base64 (ตัดส่วน "data:image/jpeg;base64," ออก)
+                const base64Data = reader.result.split(',')[1];
+                
+                // 2. ส่งข้อมูลไปที่ Google Apps Script
+                try {
+                    const response = await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            fileName: selectedFile.name,
+                            mimeType: selectedFile.type,
+                            base64Data: base64Data
+                        }),
+                        headers: {
+                            'Content-Type': 'text/plain;charset=utf-8', // Apps Script ต้องการแบบนี้
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        // 3. ถ้าอัปโหลดสำเร็จ ให้ส่งข้อความรูปภาพผ่าน LIFF
+                        const imageUrl = result.imageUrl;
+                        await liff.sendMessages([
+                            {
+                                type: 'image',
+                                originalContentUrl: imageUrl,
+                                previewImageUrl: imageUrl,
+                            }
+                        ]);
+                        // 4. ปิดหน้าต่าง LIFF
+                        liff.closeWindow();
+                    } else {
+                        throw new Error(result.message);
+                    }
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('เกิดข้อผิดพลาดในการอัปโหลดหรือส่งรูปภาพ: ' + error.message);
+                    // คืนค่าปุ่มให้กดได้อีกครั้ง
+                    actionButton.disabled = false;
+                    actionButton.innerText = 'ส่งรูปภาพ';
+                    loader.style.display = 'none';
+                }
+            };
+
+            reader.onerror = (error) => {
+                console.error("File reading error:", error);
+                alert("เกิดข้อผิดพลาดในการอ่านไฟล์");
+                actionButton.disabled = false;
+                actionButton.innerText = 'ส่งรูปภาพ';
+                loader.style.display = 'none';
+            };
+        }
+    </script>
+</body>
+</html>
