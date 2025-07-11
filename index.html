@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ระบบลุ้นโชค</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@400;700&display=swap');
+        :root {
+            --primary-color: #ff6b6b;
+            --secondary-color: #ff8e53;
+            --light-color: #ffeaa7;
+            --white-color: #ffffff;
+            --dark-color: #d63031;
+            --text-dark: #333;
+        }
+        body { margin: 0; font-family: 'Kanit', sans-serif; background: linear-gradient(45deg, var(--primary-color), var(--secondary-color)); display: flex; justify-content: center; align-items: center; min-height: 100vh; color: var(--white-color); overflow: hidden; text-align: center; }
+        .main-container { display: none; flex-direction: column; align-items: center; }
+        .loading-text { font-size: 1.5em; }
+        .wheel-container { position: relative; width: 90vw; max-width: 500px; height: 90vw; max-height: 500px; display: flex; justify-content: center; align-items: center; flex-direction: column; }
+        .wheel-pointer { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 40px solid var(--white-color); z-index: 10; filter: drop-shadow(0 -5px 5px rgba(0,0,0,0.3)); }
+        #wheelCanvas { transition: transform 5s cubic-bezier(0.2, 0.8, 0.2, 1); filter: drop-shadow(0 10px 15px rgba(0,0,0,0.25)); max-width: 100%; height: auto; }
+        #spinButton { position: absolute; width: 25%; height: 25%; max-width: 100px; max-height: 100px; border-radius: 50%; background-color: var(--white-color); border: 6px solid var(--light-color); color: var(--dark-color); font-family: 'Kanit', sans-serif; font-size: 20px; font-weight: 700; cursor: pointer; z-index: 5; transition: all 0.2s ease; box-shadow: 0 5px 10px rgba(0,0,0,0.2); }
+        #spinButton:disabled { cursor: not-allowed; background-color: #b2bec3; color: #636e72; transform: scale(1); border-color: #dfe6e9; }
+        .status-message { margin-top: 20px; font-size: 1.2em; background-color: rgba(0,0,0,0.2); padding: 10px 20px; border-radius: 10px;}
+        .popup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); display: none; justify-content: center; align-items: center; z-index: 999; opacity: 0; transition: opacity 0.3s ease; padding: 15px; }
+        .popup-content { background: var(--white-color); padding: 30px; border-radius: 20px; text-align: center; color: var(--text-dark); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); transform: scale(0.8); transition: transform 0.3s ease; max-width: 90%; }
+        .popup-content h2 { margin: 0 0 10px; font-size: 2em; color: var(--primary-color); }
+        .popup-content p { margin: 0 0 25px; font-size: 1.2em; color: #555; white-space: pre-wrap; }
+        .popup-button { padding: 12px 30px; border: none; background: linear-gradient(45deg, var(--primary-color), var(--secondary-color)); color: white; border-radius: 10px; font-size: 1.1em; font-family: 'Kanit', sans-serif; cursor: pointer; transition: transform 0.2s ease; text-decoration: none; display: inline-block; }
+        .popup-overlay.show { display: flex; opacity: 1; }
+        .popup-overlay.show .popup-content { transform: scale(1); }
+    </style>
+</head>
+<body>
+
+    <div id="loading" class="loading-text">กำลังโหลดข้อมูล...</div>
+
+    <div id="mainApp" class="main-container">
+        <div class="wheel-container">
+            <div class="wheel-pointer"></div>
+            <canvas id="wheelCanvas" width="500" height="500"></canvas>
+            <button id="spinButton">หมุน</button>
+        </div>
+        <div id="statusMessage" class="status-message" style="display: none;"></div>
+    </div>
+
+    <div class="popup-overlay" id="resultPopup">
+        <div class="popup-content">
+            <h2 id="popupTitle">ยินดีด้วย!</h2>
+            <p id="popupMessage">คุณได้รับรางวัล</p>
+            <a href="#" id="popupAction" class="popup-button" target="_blank">ตกลง</a>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="netflixPopup">
+        <div class="popup-content">
+            <h2>รหัส Netflix ของคุณ</h2>
+            <p>Username: user-example<br>Password: pass-example</p>
+            <button id="closeNetflixPopup" class="popup-button">ตกลง</button>
+        </div>
+    </div>
+
+
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script>
+        // ============== CONFIGURATION ==============
+        const LIFF_ID = "2007657706-pRD69QDg"; // << ใส่ LIFF ID ของคุณ
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwwgIGnj7GMf_aBMEQSpieVM5jElv-NK5z-I9sjEz72s1e-Fhfc5l8t_Ugka_sO_Q/exec"; // << ใส่ URL ของ Web App ที่ได้จาก Apps Script
+        // ===========================================
+
+        const loadingDiv = document.getElementById('loading');
+        const mainAppDiv = document.getElementById('mainApp');
+        const canvas = document.getElementById('wheelCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinButton = document.getElementById('spinButton');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // Popups
+        const resultPopup = document.getElementById('resultPopup');
+        const popupTitle = document.getElementById('popupTitle');
+        const popupMessage = document.getElementById('popupMessage');
+        const popupAction = document.getElementById('popupAction');
+        const netflixPopup = document.getElementById('netflixPopup');
+        const closeNetflixPopup = document.getElementById('closeNetflixPopup');
+
+        let userProfile = null;
+        let segments = [];
+        let isSpinning = false;
+        let currentRotation = 0;
+        const colors = ["#d63031", "#e17055", "#fab1a0", "#ff7675", "#fdcb6e"];
+
+        async function main() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    loadingDiv.innerText = "กรุณาเข้าสู่ระบบ LINE เพื่อใช้งาน";
+                    liff.login();
+                    return;
+                }
+                userProfile = await liff.getProfile();
+                document.title = `${userProfile.displayName} กำลังใช้งานระบบลุ้นโชค`;
+                
+                checkUserSpinStatus();
+
+            } catch (error) {
+                loadingDiv.innerText = "เกิดข้อผิดพลาดในการโหลด LIFF";
+                console.error(error);
+            }
+        }
+
+        async function checkUserSpinStatus() {
+            try {
+                const response = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'checkUserStatus', userId: userProfile.userId }),
+                    redirect: "follow"
+                });
+                const result = await response.json();
+
+                if (result.status === 'already_spun') {
+                    spinButton.disabled = true;
+                    statusMessage.innerText = 'คุณได้ใช้สิทธิ์ลุ้นโชคไปแล้ว';
+                    statusMessage.style.display = 'block';
+                }
+                
+                // Always draw the wheel
+                segments = result.prizes || [];
+                drawWheel();
+                loadingDiv.style.display = 'none';
+                mainAppDiv.style.display = 'flex';
+
+            } catch (error) {
+                loadingDiv.innerText = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้';
+                console.error("Error checking status:", error);
+            }
+        }
+
+        function drawWheel() {
+            if (segments.length === 0) return;
+            const numSegments = segments.length;
+            const anglePerSegment = (2 * Math.PI) / numSegments;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            segments.forEach((segment, i) => {
+                const startAngle = i * anglePerSegment;
+                ctx.beginPath();
+                ctx.moveTo(canvas.width / 2, canvas.height / 2);
+                ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2 - 5, startAngle, startAngle + anglePerSegment);
+                ctx.closePath();
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.fill();
+                
+                ctx.save();
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate(startAngle + anglePerSegment / 2);
+                ctx.textAlign = 'right';
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 20px Kanit';
+                ctx.fillText(segment.PrizeName, canvas.width / 2 - 20, 10);
+                ctx.restore();
+            });
+        }
+
+        async function handleSpin() {
+            if (isSpinning) return;
+            isSpinning = true;
+            spinButton.disabled = true;
+            spinButton.innerText = "รอสักครู่";
+
+            try {
+                const response = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'spinWheel',
+                        userId: userProfile.userId,
+                        displayName: userProfile.displayName
+                    }),
+                    redirect: "follow"
+                });
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    animateWheelToPrize(result.prize);
+                } else {
+                    statusMessage.innerText = result.message || 'เกิดข้อผิดพลาด';
+                    statusMessage.style.display = 'block';
+                    isSpinning = false;
+                }
+            } catch (error) {
+                statusMessage.innerText = 'การเชื่อมต่อล้มเหลว';
+                statusMessage.style.display = 'block';
+                isSpinning = false;
+                spinButton.disabled = false;
+                spinButton.innerText = "หมุน";
+            }
+        }
+        
+        function animateWheelToPrize(prize) {
+            const prizeIndex = segments.findIndex(s => s.PrizeID === prize.PrizeID);
+            const numSegments = segments.length;
+            const anglePerSegment = 360 / numSegments;
+            
+            // Calculate stop angle
+            const randomOffset = (Math.random() * 0.8 + 0.1) * anglePerSegment; // Stop somewhere inside the segment
+            const stopAngle = (numSegments - prizeIndex - 1) * anglePerSegment + randomOffset;
+            
+            const spinCycles = 8;
+            const totalRotation = spinCycles * 360 + stopAngle;
+
+            currentRotation = totalRotation;
+            canvas.style.transform = `rotate(${currentRotation}deg)`;
+
+            setTimeout(() => {
+                showResultPopup(prize);
+                isSpinning = false; // Allow state reset but button remains disabled
+                spinButton.innerText = "หมุน";
+                statusMessage.innerText = 'คุณได้ใช้สิทธิ์ไปแล้ว';
+                statusMessage.style.display = 'block';
+            }, 5100); // Wait for animation to finish
+        }
+
+        function showResultPopup(prize) {
+            popupAction.style.display = 'inline-block';
+            popupAction.onclick = () => resultPopup.classList.remove('show');
+            popupAction.removeAttribute('href');
+            popupAction.target = '_self';
+            
+            switch(prize.Type) {
+                case 'Link':
+                    popupTitle.innerText = 'ยินดีด้วย!';
+                    popupMessage.innerText = `คุณได้รับ: ${prize.PrizeName}`;
+                    popupAction.innerText = 'กดเพื่อรับรางวัล';
+                    popupAction.href = prize.Value;
+                    popupAction.target = '_blank'; // Open link in new tab
+                    break;
+                case 'Lose':
+                    popupTitle.innerText = 'เสียใจด้วย';
+                    popupMessage.innerText = prize.Value;
+                    popupAction.innerText = 'ปิด';
+                    break;
+                case 'Message':
+                    popupTitle.innerText = 'ยินดีด้วย!';
+                    popupMessage.innerText = prize.Value;
+                    popupAction.innerText = 'ตกลง';
+                    break;
+                case 'Netflix':
+                    popupTitle.innerText = 'ยินดีด้วย!';
+                    popupMessage.innerText = prize.Value || 'คุณได้สมาชิก VIP Netflix 1 วัน';
+                    popupAction.innerText = 'ดูรหัส';
+                    popupAction.onclick = (e) => {
+                        e.preventDefault();
+                        resultPopup.classList.remove('show');
+                        netflixPopup.classList.add('show');
+                    };
+                    break;
+            }
+            resultPopup.classList.add('show');
+        }
+
+        spinButton.addEventListener('click', handleSpin);
+        popupAction.addEventListener('click', () => resultPopup.classList.remove('show'));
+        closeNetflixPopup.addEventListener('click', () => netflixPopup.classList.remove('show'));
+
+        main();
+    </script>
+</body>
+</html>
